@@ -8,6 +8,7 @@ from classes.Tts import TTS
 from classes.Twitter import Twitter
 from classes.YouTube import YouTube
 from llm_provider import select_model
+from scheduler import post_next_queued, update_queue_item
 
 def main():
     """Main function to post content to Twitter or upload videos to YouTube.
@@ -64,7 +65,18 @@ def main():
             account["firefox_profile"],
             account["topic"]
         )
-        twitter.post()
+        # Check queue first — post from queue if items are due
+        queued_item = post_next_queued("twitter")
+        if queued_item:
+            if queued_item.get("content_type") == "thread" and queued_item.get("tweets"):
+                twitter.post_thread(tweets=queued_item["tweets"])
+            else:
+                twitter.post(text=queued_item["content"])
+            update_queue_item("twitter", queued_item["id"], {"status": "posted"})
+            if verbose:
+                success(f"Posted queued item: {queued_item['content'][:40]}...")
+        else:
+            twitter.post()
         if verbose:
             success("Done posting.")
 
@@ -96,7 +108,23 @@ def main():
             account["niche"],
             account["language"]
         )
-        youtube.generate_video(tts)
+        # Check queue first — use pre-generated content if available
+        queued_item = post_next_queued("youtube")
+        if queued_item:
+            youtube.subject = queued_item["topic"]
+            youtube.script = queued_item["script"]
+            youtube.metadata = queued_item.get("metadata", {"title": queued_item["topic"], "description": ""})
+            youtube.generate_prompts()
+            for prompt in youtube.image_prompts:
+                youtube.generate_image(prompt)
+            youtube.generate_script_to_speech(tts)
+            path = youtube.combine()
+            youtube.video_path = path
+            update_queue_item("youtube", queued_item["id"], {"status": "generated"})
+            if verbose:
+                info(f"Generated from queue: {queued_item['topic'][:40]}...")
+        else:
+            youtube.generate_video(tts)
         youtube.upload_video()
         if verbose:
             success("Uploaded Short.")

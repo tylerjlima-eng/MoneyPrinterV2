@@ -10,6 +10,7 @@ OPTIONS = [
     "Twitter Bot",
     "Affiliate Marketing",
     "Outreach",
+    "Revenue Dashboard",
     "Quit"
 ]
 
@@ -19,6 +20,9 @@ TWITTER_OPTIONS = [
     "Show all Posts",
     "Setup CRON Job",
     "Analytics",
+    "Pre-Generate Content Queue",
+    "Post from Queue",
+    "Cross-Post to YouTube",
     "Quit"
 ]
 
@@ -35,6 +39,9 @@ YOUTUBE_OPTIONS = [
     "Show all Shorts",
     "Setup CRON Job",
     "Analytics",
+    "Pre-Generate Content Queue",
+    "Generate from Queue",
+    "Cross-Post to Twitter",
     "Quit"
 ]
 

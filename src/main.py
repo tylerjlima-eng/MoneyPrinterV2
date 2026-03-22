@@ -18,6 +18,14 @@ from classes.Outreach import Outreach
 from classes.AFM import AffiliateMarketing
 from llm_provider import list_models, select_model, get_active_model
 from config import validate_config
+from scheduler import (
+    pre_generate_twitter_content, pre_generate_youtube_content,
+    get_queued_items, post_next_queued, update_queue_item, clear_queue,
+)
+from crosspost import (
+    crosspost_tweet_to_youtube, crosspost_video_to_twitter,
+)
+from revenue import print_revenue_dashboard, log_milestone
 
 def main():
     """Main entry point for the application, providing a menu-driven interface
@@ -253,6 +261,89 @@ def main():
                             print(colored(f"  Latest: \"{last.get('title', 'N/A')[:50]}\" on {last.get('date', 'N/A')}", "cyan"))
                         info("===============================\n", False)
                     elif user_input == 6:
+                        # Pre-Generate Content Queue
+                        count_str = question("How many items to pre-generate? (default 5): ").strip()
+                        count = int(count_str) if count_str.isdigit() and int(count_str) > 0 else 5
+                        include_threads = question("Include threads? (Yes/No, default Yes): ").strip().lower()
+                        include_threads = include_threads != "no"
+                        pre_generate_youtube_content(
+                            selected_account["id"],
+                            selected_account["niche"],
+                            selected_account["language"],
+                            count=count,
+                        )
+                    elif user_input == 7:
+                        # Generate from Queue
+                        queued = get_queued_items("youtube", status="queued")
+                        if not queued:
+                            warning("No queued YouTube content. Use 'Pre-Generate Content Queue' first.")
+                        else:
+                            info(f"{len(queued)} items in queue.")
+                            for idx, item in enumerate(queued[:5]):
+                                title = item.get("metadata", {}).get("title", item.get("topic", ""))[:50]
+                                scheduled = item.get("scheduled_time", "manual")
+                                print(colored(f"  {idx + 1}. {title}  [{scheduled}]", "cyan"))
+
+                            pick = question("Generate which item? (number, or 'all'): ").strip()
+                            if pick.lower() == "all":
+                                items_to_gen = queued[:5]
+                            elif pick.isdigit() and 1 <= int(pick) <= len(queued[:5]):
+                                items_to_gen = [queued[int(pick) - 1]]
+                            else:
+                                warning("Invalid selection.")
+                                items_to_gen = []
+
+                            for item in items_to_gen:
+                                youtube.subject = item["topic"]
+                                youtube.script = item["script"]
+                                youtube.metadata = item.get("metadata", {"title": item["topic"], "description": ""})
+                                youtube.images = []
+
+                                youtube.generate_prompts()
+                                for prompt in youtube.image_prompts:
+                                    youtube.generate_image(prompt)
+                                youtube.generate_script_to_speech(tts)
+                                path = youtube.combine()
+                                youtube.video_path = path
+                                update_queue_item("youtube", item["id"], {"status": "generated", "video_path": path})
+                                success(f"Generated video: {path}")
+
+                                upload_input = question("Upload this video? (Yes/No): ").strip().lower()
+                                if upload_input == "yes":
+                                    uploaded = youtube.upload_video()
+                                    if uploaded:
+                                        update_queue_item("youtube", item["id"], {"status": "posted"})
+                                        success("Uploaded!")
+                                    else:
+                                        update_queue_item("youtube", item["id"], {"status": "failed"})
+                                        warning("Upload failed.")
+
+                                rem_temp_files()
+                    elif user_input == 8:
+                        # Cross-Post to Twitter
+                        if not hasattr(youtube, 'script') or not youtube.script:
+                            warning("Generate a video first before cross-posting.")
+                        else:
+                            # Need a Twitter account for cross-posting
+                            tw_accounts = get_accounts("twitter")
+                            if not tw_accounts:
+                                warning("No Twitter accounts found. Set one up first.")
+                            else:
+                                info("Select a Twitter account for cross-posting:")
+                                for idx, acc in enumerate(tw_accounts):
+                                    print(colored(f"  {idx + 1}. {acc['nickname']}", "cyan"))
+                                tw_pick = question("Account number: ").strip()
+                                tw_acc = None
+                                if tw_pick.isdigit() and 1 <= int(tw_pick) <= len(tw_accounts):
+                                    tw_acc = tw_accounts[int(tw_pick) - 1]
+
+                                if tw_acc:
+                                    as_thread = question("Post as thread? (Yes/No, default Yes): ").strip().lower() != "no"
+                                    tw = Twitter(tw_acc["id"], tw_acc["nickname"], tw_acc["firefox_profile"], tw_acc["topic"])
+                                    crosspost_video_to_twitter(youtube, tw, as_thread=as_thread)
+                                else:
+                                    warning("Invalid selection.")
+                    elif user_input == 9:
                         if get_verbose():
                             info(" => Climbing Options Ladder...", False)
                         break
@@ -436,6 +527,102 @@ def main():
                             print(colored(f"  Latest: \"{last.get('content', '')[:40]}...\" on {last.get('date', 'N/A')}", "cyan"))
                         info("===============================\n", False)
                     elif user_input == 6:
+                        # Pre-Generate Content Queue
+                        count_str = question("How many items to pre-generate? (default 5): ").strip()
+                        count = int(count_str) if count_str.isdigit() and int(count_str) > 0 else 5
+                        include_threads = question("Include threads? (Yes/No, default Yes): ").strip().lower()
+                        include_threads = include_threads != "no"
+                        pre_generate_twitter_content(
+                            selected_account["id"],
+                            selected_account["topic"],
+                            count=count,
+                            include_threads=include_threads,
+                        )
+                    elif user_input == 7:
+                        # Post from Queue
+                        queued = get_queued_items("twitter", status="queued")
+                        if not queued:
+                            warning("No queued Twitter content. Use 'Pre-Generate Content Queue' first.")
+                        else:
+                            info(f"{len(queued)} items in queue.")
+                            for idx, item in enumerate(queued[:10]):
+                                ctype = item.get("content_type", "single")
+                                scheduled = item.get("scheduled_time", "manual")
+                                print(colored(f"  {idx + 1}. [{ctype}] {item['content'][:45]}...  [{scheduled}]", "cyan"))
+
+                            pick = question("Post which item? (number, 'next' for next due, or 'all'): ").strip()
+                            if pick.lower() == "next":
+                                item = post_next_queued("twitter")
+                                if item:
+                                    if item.get("content_type") == "thread" and item.get("tweets"):
+                                        twitter.post_thread(tweets=item["tweets"])
+                                    else:
+                                        twitter.post(text=item["content"])
+                                    update_queue_item("twitter", item["id"], {"status": "posted"})
+                                else:
+                                    warning("No items due right now.")
+                            elif pick.lower() == "all":
+                                for item in queued[:10]:
+                                    if item.get("content_type") == "thread" and item.get("tweets"):
+                                        twitter.post_thread(tweets=item["tweets"])
+                                    else:
+                                        twitter.post(text=item["content"])
+                                    update_queue_item("twitter", item["id"], {"status": "posted"})
+                                    time.sleep(5)
+                            elif pick.isdigit() and 1 <= int(pick) <= len(queued[:10]):
+                                item = queued[int(pick) - 1]
+                                if item.get("content_type") == "thread" and item.get("tweets"):
+                                    twitter.post_thread(tweets=item["tweets"])
+                                else:
+                                    twitter.post(text=item["content"])
+                                update_queue_item("twitter", item["id"], {"status": "posted"})
+                            else:
+                                warning("Invalid selection.")
+                    elif user_input == 8:
+                        # Cross-Post to YouTube
+                        last_posts = twitter.get_posts()
+                        if not last_posts:
+                            warning("No posts found. Post something first.")
+                        else:
+                            info("Select a post to cross-post as a YouTube Short:")
+                            for idx, post in enumerate(last_posts[-5:]):
+                                print(colored(f"  {idx + 1}. {post['content'][:50]}...", "cyan"))
+
+                            pick = question("Post number: ").strip()
+                            if pick.isdigit() and 1 <= int(pick) <= len(last_posts[-5:]):
+                                selected_post = last_posts[-5:][int(pick) - 1]
+
+                                # Need a YouTube account for cross-posting
+                                yt_accounts = get_accounts("youtube")
+                                if not yt_accounts:
+                                    warning("No YouTube accounts found. Set one up first.")
+                                else:
+                                    info("Select a YouTube account for cross-posting:")
+                                    for idx, acc in enumerate(yt_accounts):
+                                        print(colored(f"  {idx + 1}. {acc['nickname']} ({acc['niche']})", "cyan"))
+                                    yt_pick = question("Account number: ").strip()
+                                    yt_acc = None
+                                    if yt_pick.isdigit() and 1 <= int(yt_pick) <= len(yt_accounts):
+                                        yt_acc = yt_accounts[int(yt_pick) - 1]
+
+                                    if yt_acc:
+                                        yt = YouTube(
+                                            yt_acc["id"], yt_acc["nickname"],
+                                            yt_acc["firefox_profile"],
+                                            yt_acc["niche"], yt_acc["language"]
+                                        )
+                                        tts = TTS()
+                                        auto_upload = question("Auto-upload to YouTube? (Yes/No): ").strip().lower() == "yes"
+                                        crosspost_tweet_to_youtube(
+                                            twitter, yt, tts,
+                                            selected_post["content"],
+                                            auto_upload=auto_upload,
+                                        )
+                                    else:
+                                        warning("Invalid selection.")
+                            else:
+                                warning("Invalid selection.")
+                    elif user_input == 9:
                         if get_verbose():
                             info(" => Climbing Options Ladder...", False)
                         break
@@ -507,6 +694,9 @@ def main():
 
         outreach.start()
     elif user_input == 5:
+        info("Loading Revenue Dashboard...")
+        print_revenue_dashboard()
+    elif user_input == 6:
         if get_verbose():
             print(colored(" => Quitting...", "blue"))
         sys.exit(0)
