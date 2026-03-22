@@ -195,6 +195,150 @@ class Twitter:
             with open(get_twitter_cache_path(), "w") as f:
                 f.write(json.dumps(previous_json))
 
+    def post_thread(self, tweets: Optional[List[str]] = None) -> None:
+        """
+        Posts a thread (multiple connected tweets) to Twitter/X.
+
+        Args:
+            tweets (List[str]): List of tweet texts. If None, generates a thread automatically.
+        """
+        bot: webdriver.Firefox = self.browser
+        verbose: bool = get_verbose()
+
+        thread_tweets: List[str] = tweets if tweets is not None else self.generate_thread()
+        now: datetime = datetime.now()
+
+        if verbose:
+            info(f"Posting thread with {len(thread_tweets)} tweets...")
+
+        for idx, tweet_text in enumerate(thread_tweets):
+            if idx == 0:
+                bot.get("https://x.com/compose/post")
+            else:
+                # Click the "Add another post" button to chain the thread
+                add_button = None
+                add_button_selectors = [
+                    (By.XPATH, "//button[@data-testid='addButton']"),
+                    (By.XPATH, "//button[contains(@aria-label, 'Add')]"),
+                    (By.XPATH, "//div[@data-testid='addButton']"),
+                ]
+                for selector in add_button_selectors:
+                    try:
+                        add_button = self.wait.until(EC.element_to_be_clickable(selector))
+                        add_button.click()
+                        time.sleep(1)
+                        break
+                    except Exception:
+                        continue
+
+                if add_button is None:
+                    warning(f"Could not find 'Add post' button for tweet {idx + 1}. Posting what we have.")
+                    break
+
+            # Find the latest textbox (for threads, each new tweet gets a new textbox)
+            text_box = None
+            text_box_selectors = [
+                (By.CSS_SELECTOR, f"div[data-testid='tweetTextarea_{idx}'][role='textbox']"),
+                (By.XPATH, f"//div[@data-testid='tweetTextarea_{idx}']//div[@role='textbox']"),
+                (By.XPATH, "(//div[@role='textbox'])[last()]"),
+            ]
+
+            for selector in text_box_selectors:
+                try:
+                    text_box = self.wait.until(EC.element_to_be_clickable(selector))
+                    text_box.click()
+                    text_box.send_keys(tweet_text)
+                    break
+                except Exception:
+                    continue
+
+            if text_box is None:
+                warning(f"Could not find textbox for tweet {idx + 1}. Posting what we have.")
+                break
+
+            if verbose:
+                info(f" => Wrote tweet {idx + 1}/{len(thread_tweets)}: {tweet_text[:40]}...")
+
+        # Click the "Post all" button
+        post_button = None
+        post_button_selectors = [
+            (By.XPATH, "//button[@data-testid='tweetButtonInline']"),
+            (By.XPATH, "//button[@data-testid='tweetButton']"),
+            (By.XPATH, "//span[text()='Post all']/ancestor::button"),
+            (By.XPATH, "//span[text()='Post']/ancestor::button"),
+        ]
+
+        for selector in post_button_selectors:
+            try:
+                post_button = self.wait.until(EC.element_to_be_clickable(selector))
+                post_button.click()
+                break
+            except Exception:
+                continue
+
+        if post_button is None:
+            raise RuntimeError("Could not find the Post button for the thread.")
+
+        time.sleep(2)
+
+        # Cache the thread as a single post entry
+        self.add_post({
+            "content": " | ".join(thread_tweets),
+            "type": "thread",
+            "tweet_count": len(thread_tweets),
+            "date": now.strftime("%m/%d/%Y, %H:%M:%S"),
+        })
+
+        success(f"Posted thread with {len(thread_tweets)} tweets!")
+
+    def generate_thread(self, num_tweets: int = 4) -> List[str]:
+        """
+        Generates a Twitter thread (multiple connected tweets) about the topic.
+
+        Args:
+            num_tweets (int): Number of tweets in the thread (default 4).
+
+        Returns:
+            tweets (List[str]): List of tweet texts.
+        """
+        completion = generate_text(
+            f"Generate a Twitter thread about: {self.topic} in {get_twitter_language()}. "
+            f"The thread should have exactly {num_tweets} tweets. "
+            "Each tweet must be under 260 characters. "
+            "The first tweet should hook the reader with a bold claim or question. "
+            "The middle tweets should provide value, tips, or insights. "
+            "The last tweet should have a call-to-action. "
+            "Return ONLY a JSON array of strings, one per tweet. Example: "
+            '["First tweet here", "Second tweet here", "Third tweet here", "Last tweet here"]'
+        )
+
+        # Clean markdown
+        completion = completion.replace("```json", "").replace("```", "").strip()
+
+        try:
+            tweets = json.loads(completion)
+            if isinstance(tweets, list) and all(isinstance(t, str) for t in tweets):
+                # Truncate any that are too long
+                result = []
+                for t in tweets:
+                    t = re.sub(r"\*", "", t).replace('"', "")
+                    if len(t) >= 260:
+                        parts = t[:257].rsplit(" ", 1)
+                        t = (parts[0] if len(parts) > 1 else t[:257]) + "..."
+                    result.append(t)
+                return result
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+        # Fallback: split by newlines and filter
+        lines = [line.strip().lstrip("0123456789.)- ") for line in completion.split("\n") if line.strip()]
+        if len(lines) >= 2:
+            return [l[:260] for l in lines[:num_tweets]]
+
+        # Last resort: generate single tweets
+        warning("Could not parse thread. Falling back to single tweet.")
+        return [self.generate_post()]
+
     def generate_post(self) -> str:
         """
         Generates a post for the Twitter account based on the topic.

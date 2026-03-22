@@ -15,8 +15,10 @@ OPTIONS = [
 
 TWITTER_OPTIONS = [
     "Post something",
+    "Post a Thread",
     "Show all Posts",
     "Setup CRON Job",
+    "Analytics",
     "Quit"
 ]
 
@@ -29,8 +31,10 @@ TWITTER_CRON_OPTIONS = [
 
 YOUTUBE_OPTIONS = [
     "Upload Short",
+    "Batch Generate Shorts",
     "Show all Shorts",
     "Setup CRON Job",
+    "Analytics",
     "Quit"
 ]
 

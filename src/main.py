@@ -167,6 +167,13 @@ def main():
                         if upload_to_yt.lower() == "yes":
                             youtube.upload_video()
                     elif user_input == 2:
+                        # Batch generate
+                        count_str = question("How many videos to generate? (default 3): ").strip()
+                        count = int(count_str) if count_str.isdigit() and int(count_str) > 0 else 3
+                        auto_upload_input = question("Auto-upload each video? (Yes/No): ").strip().lower()
+                        auto_upload = auto_upload_input == "yes"
+                        youtube.generate_batch(tts, count=count, auto_upload=auto_upload)
+                    elif user_input == 3:
                         videos = youtube.get_videos()
 
                         if len(videos) > 0:
@@ -183,7 +190,7 @@ def main():
                             print(videos_table)
                         else:
                             warning(" No videos found.")
-                    elif user_input == 3:
+                    elif user_input == 4:
                         info("How often do you want to upload?")
 
                         info("\n============ OPTIONS ============", False)
@@ -221,7 +228,31 @@ def main():
                         except KeyboardInterrupt:
                             info("Scheduler stopped.")
                             break
-                    elif user_input == 4:
+                    elif user_input == 5:
+                        # Analytics
+                        videos = youtube.get_videos()
+                        info("\n========== ANALYTICS ==========", False)
+                        print(colored(f"  Total videos uploaded: {len(videos)}", "cyan"))
+                        if len(videos) > 0:
+                            # Videos per day breakdown
+                            from collections import Counter
+                            dates = []
+                            for v in videos:
+                                date_str = v.get("date", "")
+                                day = date_str.split(" ")[0] if " " in date_str else date_str
+                                if day:
+                                    dates.append(day)
+                            day_counts = Counter(dates)
+                            if day_counts:
+                                print(colored(f"  Days with uploads: {len(day_counts)}", "cyan"))
+                                avg = len(videos) / len(day_counts)
+                                print(colored(f"  Avg videos/day: {avg:.1f}", "cyan"))
+                                most_common_day, most_count = day_counts.most_common(1)[0]
+                                print(colored(f"  Best day: {most_common_day} ({most_count} videos)", "green"))
+                            last = videos[-1]
+                            print(colored(f"  Latest: \"{last.get('title', 'N/A')[:50]}\" on {last.get('date', 'N/A')}", "cyan"))
+                        info("===============================\n", False)
+                    elif user_input == 6:
                         if get_verbose():
                             info(" => Climbing Options Ladder...", False)
                         break
@@ -310,21 +341,29 @@ def main():
                     if user_input == 1:
                         twitter.post()
                     elif user_input == 2:
+                        # Post a Thread
+                        num_str = question("How many tweets in the thread? (default 4): ").strip()
+                        num_tweets = int(num_str) if num_str.isdigit() and 2 <= int(num_str) <= 10 else 4
+                        thread_tweets = twitter.generate_thread(num_tweets=num_tweets)
+                        twitter.post_thread(tweets=thread_tweets)
+                    elif user_input == 3:
                         posts = twitter.get_posts()
 
                         posts_table = PrettyTable()
 
-                        posts_table.field_names = ["ID", "Date", "Content"]
+                        posts_table.field_names = ["ID", "Date", "Type", "Content"]
 
                         for post in posts:
+                            post_type = post.get("type", "single")
                             posts_table.add_row([
                                 posts.index(post) + 1,
                                 colored(post["date"], "blue"),
-                                colored(post["content"][:60] + "...", "green")
+                                colored(post_type, "yellow"),
+                                colored(post["content"][:50] + "...", "green")
                             ])
 
                         print(posts_table)
-                    elif user_input == 3:
+                    elif user_input == 4:
                         info("How often do you want to post?")
 
                         info("\n============ OPTIONS ============", False)
@@ -368,7 +407,35 @@ def main():
                         except KeyboardInterrupt:
                             info("Scheduler stopped.")
                             break
-                    elif user_input == 4:
+                    elif user_input == 5:
+                        # Analytics
+                        posts = twitter.get_posts()
+                        info("\n========== ANALYTICS ==========", False)
+                        print(colored(f"  Total posts: {len(posts)}", "cyan"))
+                        if len(posts) > 0:
+                            threads = [p for p in posts if p.get("type") == "thread"]
+                            singles = len(posts) - len(threads)
+                            print(colored(f"  Single posts: {singles}", "cyan"))
+                            print(colored(f"  Threads: {len(threads)}", "cyan"))
+                            if threads:
+                                total_tweets_in_threads = sum(p.get("tweet_count", 1) for p in threads)
+                                print(colored(f"  Total tweets in threads: {total_tweets_in_threads}", "cyan"))
+                            from collections import Counter
+                            dates = []
+                            for p in posts:
+                                date_str = p.get("date", "")
+                                day = date_str.split(",")[0] if "," in date_str else date_str.split(" ")[0]
+                                if day:
+                                    dates.append(day)
+                            day_counts = Counter(dates)
+                            if day_counts:
+                                print(colored(f"  Days with posts: {len(day_counts)}", "cyan"))
+                                avg = len(posts) / len(day_counts)
+                                print(colored(f"  Avg posts/day: {avg:.1f}", "cyan"))
+                            last = posts[-1]
+                            print(colored(f"  Latest: \"{last.get('content', '')[:40]}...\" on {last.get('date', 'N/A')}", "cyan"))
+                        info("===============================\n", False)
+                    elif user_input == 6:
                         if get_verbose():
                             info(" => Climbing Options Ladder...", False)
                         break

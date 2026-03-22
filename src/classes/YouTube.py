@@ -697,6 +697,48 @@ class YouTube:
 
         return path
 
+    def generate_batch(self, tts_instance: TTS, count: int = 3, auto_upload: bool = False) -> List[str]:
+        """
+        Generates multiple YouTube Shorts in one run.
+
+        Args:
+            tts_instance (TTS): Instance of TTS Class.
+            count (int): Number of videos to generate.
+            auto_upload (bool): Whether to upload each video after generation.
+
+        Returns:
+            paths (List[str]): Paths to the generated MP4 files.
+        """
+        paths = []
+        for i in range(count):
+            info(f"Generating video {i + 1}/{count}...")
+
+            # Reset per-video state
+            self.images = []
+
+            try:
+                path = self.generate_video(tts_instance)
+                paths.append(path)
+                success(f"Video {i + 1}/{count} generated: {path}")
+
+                if auto_upload:
+                    uploaded = self.upload_video()
+                    if uploaded:
+                        success(f"Video {i + 1}/{count} uploaded!")
+                    else:
+                        warning(f"Video {i + 1}/{count} upload failed.")
+
+                # Clean temp files between videos (keep generated videos)
+                from utils import rem_temp_files
+                rem_temp_files()
+
+            except Exception as e:
+                warning(f"Video {i + 1}/{count} failed: {e}")
+                continue
+
+        success(f"Batch complete: {len(paths)}/{count} videos generated.")
+        return paths
+
     def get_channel_id(self) -> str:
         """
         Gets the Channel ID of the YouTube Account.
