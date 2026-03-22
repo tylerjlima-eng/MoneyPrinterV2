@@ -1,3 +1,4 @@
+import time
 import schedule
 import subprocess
 
@@ -16,6 +17,7 @@ from prettytable import PrettyTable
 from classes.Outreach import Outreach
 from classes.AFM import AffiliateMarketing
 from llm_provider import list_models, select_model, get_active_model
+from config import validate_config
 
 def main():
     """Main entry point for the application, providing a menu-driven interface
@@ -209,6 +211,16 @@ def main():
                             success("Set up CRON Job.")
                         else:
                             break
+
+                        # Run the scheduler loop
+                        info("Scheduler is now running. Press Ctrl+C to stop.", False)
+                        try:
+                            while True:
+                                schedule.run_pending()
+                                time.sleep(60)
+                        except KeyboardInterrupt:
+                            info("Scheduler stopped.")
+                            break
                     elif user_input == 4:
                         if get_verbose():
                             info(" => Climbing Options Ladder...", False)
@@ -346,6 +358,16 @@ def main():
                             success("Set up CRON Job.")
                         else:
                             break
+
+                        # Run the scheduler loop
+                        info("Scheduler is now running. Press Ctrl+C to stop.", False)
+                        try:
+                            while True:
+                                schedule.run_pending()
+                                time.sleep(60)
+                        except KeyboardInterrupt:
+                            info("Scheduler stopped.")
+                            break
                     elif user_input == 4:
                         if get_verbose():
                             info(" => Climbing Options Ladder...", False)
@@ -434,6 +456,14 @@ if __name__ == "__main__":
 
     if first_time:
         print(colored("Hey! It looks like you're running MoneyPrinter V2 for the first time. Let's get you setup first!", "yellow"))
+
+    # Validate config
+    config_errors = validate_config()
+    if config_errors:
+        for err in config_errors:
+            error(err)
+        print(colored("\nPlease fix config.json and try again. See config.example.json for reference.", "yellow"))
+        sys.exit(1)
 
     # Setup file tree
     assert_folder_structure()

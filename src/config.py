@@ -7,6 +7,45 @@ from termcolor import colored
 
 ROOT_DIR = os.path.dirname(sys.path[0])
 
+# Required top-level keys and their expected types
+_REQUIRED_KEYS = {
+    "verbose": bool,
+    "firefox_profile": str,
+    "headless": bool,
+    "threads": int,
+    "is_for_kids": bool,
+    "imagemagick_path": str,
+    "font": str,
+}
+
+
+def validate_config() -> list[str]:
+    """
+    Validates that config.json exists and contains required keys with correct types.
+
+    Returns:
+        errors (list[str]): List of validation error messages (empty = valid).
+    """
+    config_path = os.path.join(ROOT_DIR, "config.json")
+    errors: list[str] = []
+
+    if not os.path.exists(config_path):
+        return [f"config.json not found at {config_path}. Copy config.example.json and fill in values."]
+
+    try:
+        with open(config_path, "r") as f:
+            config = json.load(f)
+    except json.JSONDecodeError as e:
+        return [f"config.json is not valid JSON: {e}"]
+
+    for key, expected_type in _REQUIRED_KEYS.items():
+        if key not in config:
+            errors.append(f"Missing required key: '{key}'")
+        elif not isinstance(config[key], expected_type):
+            errors.append(f"Key '{key}' should be {expected_type.__name__}, got {type(config[key]).__name__}")
+
+    return errors
+
 def assert_folder_structure() -> None:
     """
     Make sure that the nessecary folder structure is present.

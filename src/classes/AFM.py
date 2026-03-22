@@ -102,19 +102,18 @@ class AffiliateMarketing:
         ).text
 
         # Get the features of the product
-        features: Any = self.browser.find_elements(By.ID, AMAZON_FEATURE_BULLETS_ID)
+        feature_elements = self.browser.find_elements(By.ID, AMAZON_FEATURE_BULLETS_ID)
+        features: list[str] = [el.text for el in feature_elements if el.text.strip()]
 
         if get_verbose():
             info(f"Product Title: {product_title}")
-
-        if get_verbose():
             info(f"Features: {features}")
 
         # Set the product title
         self.product_title: str = product_title
 
         # Set the features
-        self.features: Any = features
+        self.features: list[str] = features
 
     def generate_response(self, prompt: str) -> str:
         """

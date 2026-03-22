@@ -149,7 +149,7 @@ class YouTube:
 
         return completion
 
-    def generate_script(self) -> str:
+    def generate_script(self, _retries: int = 3) -> str:
         """
         Generate a script for a video, depending on the subject of the video, the number of paragraphs, and the AI model.
 
@@ -170,12 +170,12 @@ class YouTube:
         Get straight to the point, don't start with unnecessary things like, "welcome to this video".
 
         Obviously, the script should be related to the subject of the video.
-        
+
         YOU MUST NOT EXCEED THE {sentence_length} SENTENCES LIMIT. MAKE SURE THE {sentence_length} SENTENCES ARE SHORT.
         YOU MUST NOT INCLUDE ANY TYPE OF MARKDOWN OR FORMATTING IN THE SCRIPT, NEVER USE A TITLE.
         YOU MUST WRITE THE SCRIPT IN THE LANGUAGE SPECIFIED IN [LANGUAGE].
         ONLY RETURN THE RAW CONTENT OF THE SCRIPT. DO NOT INCLUDE "VOICEOVER", "NARRATOR" OR SIMILAR INDICATORS OF WHAT SHOULD BE SPOKEN AT THE BEGINNING OF EACH PARAGRAPH OR LINE. YOU MUST NOT MENTION THE PROMPT, OR ANYTHING ABOUT THE SCRIPT ITSELF. ALSO, NEVER TALK ABOUT THE AMOUNT OF PARAGRAPHS OR LINES. JUST WRITE THE SCRIPT
-        
+
         Subject: {self.subject}
         Language: {self.language}
         """
@@ -189,15 +189,19 @@ class YouTube:
             return
 
         if len(completion) > 5000:
-            if get_verbose():
-                warning("Generated Script is too long. Retrying...")
-            return self.generate_script()
+            if _retries <= 0:
+                error("Generated script is still too long after retries. Using truncated version.")
+                completion = completion[:5000]
+            else:
+                if get_verbose():
+                    warning(f"Generated Script is too long. Retrying... ({_retries} left)")
+                return self.generate_script(_retries=_retries - 1)
 
         self.script = completion
 
         return completion
 
-    def generate_metadata(self) -> dict:
+    def generate_metadata(self, _retries: int = 3) -> dict:
         """
         Generates Video metadata for the to-be-uploaded YouTube Short (Title, Description).
 
@@ -209,9 +213,14 @@ class YouTube:
         )
 
         if len(title) > 100:
-            if get_verbose():
-                warning("Generated Title is too long. Retrying...")
-            return self.generate_metadata()
+            if _retries <= 0:
+                if get_verbose():
+                    warning("Generated Title is still too long after retries. Truncating.")
+                title = title[:97] + "..."
+            else:
+                if get_verbose():
+                    warning(f"Generated Title is too long. Retrying... ({_retries} left)")
+                return self.generate_metadata(_retries=_retries - 1)
 
         description = self.generate_response(
             f"Please generate a YouTube Video Description for the following script: {self.script}. Only return the description, nothing else."
@@ -221,7 +230,7 @@ class YouTube:
 
         return self.metadata
 
-    def generate_prompts(self) -> List[str]:
+    def generate_prompts(self, _retries: int = 3) -> List[str]:
         """
         Generates AI Image Prompts based on the provided Video Script.
 
@@ -278,12 +287,15 @@ class YouTube:
                     )
 
                 # Get everything between [ and ], and turn it into a list
-                r = re.compile(r"\[.*\]")
+                r = re.compile(r"\[.*\]", re.DOTALL)
                 image_prompts = r.findall(completion)
                 if len(image_prompts) == 0:
+                    if _retries <= 0:
+                        error("Failed to generate Image Prompts after retries.")
+                        return []
                     if get_verbose():
-                        warning("Failed to generate Image Prompts. Retrying...")
-                    return self.generate_prompts()
+                        warning(f"Failed to generate Image Prompts. Retrying... ({_retries} left)")
+                    return self.generate_prompts(_retries=_retries - 1)
 
         if len(image_prompts) > n_prompts:
             image_prompts = image_prompts[: int(n_prompts)]
@@ -695,7 +707,8 @@ class YouTube:
         driver = self.browser
         driver.get("https://studio.youtube.com")
         time.sleep(2)
-        channel_id = driver.current_url.split("/")[-1]
+        url_parts = driver.current_url.split("/")
+        channel_id = url_parts[-1] if len(url_parts) > 0 else ""
         self.channel_id = channel_id
 
         return channel_id
@@ -824,7 +837,8 @@ class YouTube:
             href = anchor_tag.get_attribute("href")
             if verbose:
                 info(f"\t=> Extracting video ID from URL: {href}")
-            video_id = href.split("/")[-2]
+            href_parts = href.split("/")
+            video_id = href_parts[-2] if len(href_parts) >= 2 else ""
 
             # Build URL
             url = build_url(video_id)
@@ -848,7 +862,9 @@ class YouTube:
             driver.quit()
 
             return True
-        except:
+        except Exception as e:
+            if get_verbose():
+                warning(f"Upload failed: {e}")
             self.browser.quit()
             return False
 

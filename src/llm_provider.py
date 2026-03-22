@@ -1,3 +1,4 @@
+import time
 import ollama
 
 from config import get_ollama_base_url
@@ -38,13 +39,14 @@ def get_active_model() -> str | None:
     return _selected_model
 
 
-def generate_text(prompt: str, model_name: str = None) -> str:
+def generate_text(prompt: str, model_name: str = None, retries: int = 3) -> str:
     """
-    Generates text using the local Ollama server.
+    Generates text using the local Ollama server with automatic retry on failure.
 
     Args:
         prompt (str): User prompt
         model_name (str): Optional model name override
+        retries (int): Number of retries on network/server errors
 
     Returns:
         response (str): Generated text
@@ -55,9 +57,18 @@ def generate_text(prompt: str, model_name: str = None) -> str:
             "No Ollama model selected. Call select_model() first or pass model_name."
         )
 
-    response = _client().chat(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-    )
+    last_error = None
+    for attempt in range(retries + 1):
+        try:
+            response = _client().chat(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            return response["message"]["content"].strip()
+        except Exception as e:
+            last_error = e
+            if attempt < retries:
+                wait = 2 ** (attempt + 1)
+                time.sleep(wait)
 
-    return response["message"]["content"].strip()
+    raise RuntimeError(f"Ollama request failed after {retries + 1} attempts: {last_error}")

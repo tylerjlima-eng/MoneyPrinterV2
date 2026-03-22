@@ -220,6 +220,8 @@ class Twitter:
         if get_verbose():
             info(f"Length of post: {len(completion)}")
         if len(completion) >= 260:
-            return completion[:257].rsplit(" ", 1)[0] + "..."
+            parts = completion[:257].rsplit(" ", 1)
+            truncated = parts[0] if len(parts) > 1 else completion[:257]
+            return truncated + "..."
 
         return completion
